@@ -236,6 +236,7 @@ def _pvc(
         self,
         subset: Sequence[Hashable] = None,
         n: Optional[int] = 5,
+        count_col = 'rows',
         ) -> pd.DataFrame:
     """
     Pandas dataframe with top n rows of values counts formatted with percentages
@@ -255,8 +256,8 @@ def _pvc(
         self
         .value_counts(subset=subset, normalize=True, dropna=False)
         .withColumn('rc', F.col('count'))
-        .withColumnRenamed('count', 'rows')
-        .withColumn('rows', F.format_number(F.col('rows'), 0))
+        .withColumnRenamed('count', count_col)
+        .withColumn(count_col, F.format_number(F.col(count_col), 0))
         .withColumn('proportion', F.concat(F.format_number(100*F.col('proportion'), 2), F.lit(' %')))
         .orderBy(F.desc('rc'))
         .drop('rc')

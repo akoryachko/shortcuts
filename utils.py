@@ -1,6 +1,5 @@
 import pandas as pd
-import re
-from typing import Dict, Tuple, List, Optional, Union, Sequence, Hashable
+from typing import Dict, List, Optional, Sequence, Hashable, Any
 try:
     import pyspark
 except ImportError:
@@ -10,12 +9,13 @@ except ImportError:
 import pyspark.sql.functions as F  # noqa: F401
 from pyspark.sql.window import Window  # noqa: F401
 from pyspark.sql.dataframe import DataFrame  # noqa: F401
-from pyspark.sql.column import Column
+from collections import namedtuple
 
 
 pd.set_option('display.max_columns', 500)
 pd.set_option('display.max_colwidth', None)
 pd.set_option('display.max_rows', 500)
+
 
 def prc(obj, title: Optional[str] = ''):
     """ Print Row Count in a nice format
@@ -56,6 +56,7 @@ def _prc(self: DataFrame, title: Optional[str] = ''):
     """
     prc(self, title)
 
+
 DataFrame.prc = _prc
 pd.core.frame.DataFrame.prc = _prc
 
@@ -91,7 +92,7 @@ def prn(df: pd.DataFrame, cols: List[str], precision: int = 0, as_pctg: bool = F
     if isinstance(cols, str):
         cols = [cols]
     for col in cols:
-        result[col] = multiplier*df[col]
+        result[col] = multiplier * df[col]
         result[col] = result[col].map(template.format)
     return result
 
@@ -115,6 +116,7 @@ def _phead(self: DataFrame, n: Optional[int] = 5) -> pd.DataFrame:
         .reindex(self.columns, axis=1)
     )
 
+
 DataFrame.phead = _phead
 
 
@@ -131,6 +133,7 @@ def _ps(self: DataFrame, n: Optional[int] = 2):
     """
     self.prc()
     display(self.phead(n))
+
 
 DataFrame.ps = _ps
 pd.core.frame.DataFrame.ps = _ps
@@ -166,10 +169,11 @@ def _save_sdf(
     pyspark.sql.dataframe.DataFrame
     """
 
-    return pts.curried.parquet_dataframe(path=path,
-                                         df=self,
-                                         mode=mode,
-                                         delete_at_exit=delete_at_exit)
+    return self.curried.parquet_dataframe(path=path,
+                                          df=self,
+                                          mode=mode,
+                                          delete_at_exit=delete_at_exit)
+
 
 DataFrame.save_sdf = _save_sdf
 
@@ -223,11 +227,12 @@ def _value_counts(
             counts
             .withColumn(
                 'proportion',
-                F.col('count')/F.sum('count').over(Window.partitionBy())
+                F.col('count') / F.sum('count').over(Window.partitionBy())
             )
         )
 
     return counts
+
 
 DataFrame.value_counts = _value_counts
 
@@ -236,7 +241,7 @@ def _pvc(
         self,
         subset: Sequence[Hashable] = None,
         n: Optional[int] = 5,
-        count_col = 'rows',
+        count_col='rows',
         ) -> pd.DataFrame:
     """
     Pandas dataframe with top n rows of values counts formatted with percentages
@@ -258,7 +263,7 @@ def _pvc(
         .withColumn('rc', F.col('count'))
         .withColumnRenamed('count', count_col)
         .withColumn(count_col, F.format_number(F.col(count_col), 0))
-        .withColumn('proportion', F.concat(F.format_number(100*F.col('proportion'), 2), F.lit(' %')))
+        .withColumn('proportion', F.concat(F.format_number(100 * F.col('proportion'), 2), F.lit(' %')))
         .orderBy(F.desc('rc'))
         .drop('rc')
     )
@@ -267,6 +272,7 @@ def _pvc(
         sdf = sdf.limit(n)
 
     return sdf.toPandas()
+
 
 DataFrame.pvc = _pvc
 
@@ -295,6 +301,8 @@ def _time_range(
         .withColumn(col, F.from_unixtime(F.col(col) / 1000))
         .agg(F.min(col), F.max(col))
     )
+
+
 DataFrame.time_range = _time_range
 
 
@@ -322,13 +330,14 @@ def _ptr(
     print(f'  min = {res[0]}')
     print(f'  max = {res[1]}')
 
+
 DataFrame.ptr = _ptr
 
 
 def _find_col(
         self,
         substring: str,
-        case_sensitive: bool = False,
+        case_sensitive: bool = False
         ) -> DataFrame:
     """
     Return DataFrame columns that contain sunstring.
@@ -348,4 +357,129 @@ def _find_col(
         return [c for c in self.columns if substring in c]
     return [c for c in self.columns if substring.lower() in c.lower()]
 
+
 DataFrame.find_col = _find_col
+
+
+MDField = namedtuple(
+    "MDField",
+    ("path", "post_process", "is_required"),
+    defaults=([], None, False),
+)
+
+
+def map_dictionary(in_dict: Dict[str, Any], map: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Returns a dictionary produced from the fields of another dictionary
+    with optional modifications and a check for required field
+
+        Parameters:
+            in_dict: a source or input dictionary
+            map: a dictionary that defines a map from the input dictionary to the output dictionary
+
+        Returns:
+            out_dict: the resulting dictionary
+
+        Examples of the input parameters and the result are as follows:
+
+            in_dict = {
+                'path': {
+                    'through': {
+                        'nested': {
+                            'structures': 'post_process_me'
+                        }
+                    }
+                }
+                'input_dict_top_level_field': True,
+                'list_key_in_dict': [
+                    {
+                        'path_within_the_list_dict': 'u_need_me'
+                    },
+                    {
+                        'path_within_the_list_dict': 'u_need_me_too'
+                    }
+                ]
+                'absolute_path_within_the_in_dict': 42
+            }
+
+            map = {
+                'k1': "A constant",
+                'k2': MDField(['path', 'through', 'nested', 'structures'], post_process_function),
+                'k3': {
+                    'kd1': MDField(['input_dict_top_level_field']),
+                    'kd2': [
+                        'list_key_in_dict',  # LIST_NAME
+                        # LIST DICT
+                        {
+                            'kdl1': MDField(['path_within_the_list_dict'], is_required=True),
+                            'kdl2': MDField(['absolute_path_within_the_in_dict'])
+                        }
+                    ]
+                }
+            }
+
+            out_dict = {
+                'k1': "A constant",
+                'k2': post_process_function('post_process_me'),
+                'k3': {
+                    'kd1': True,
+                    'kd2': [
+                        {
+                            'kdl1': 'u_need_me',
+                            'kdl2': 42
+                        },
+                        {
+                            'kdl1': 'u_need_me_too',
+                            'kdl2': 42
+                        }
+                    ]
+                }
+            }
+    """
+
+    # when encoding a mapping of the list
+    # the first value in that list should be the corresponding key name
+    #   in the input dictionary and
+    # the second value should be the dictionary structure itself
+    LIST_NAME = 0
+    LIST_DICT = 1
+
+    # initiate the output dictionary
+    out_dict = {}
+    for k, v in map.items():
+        if isinstance(v, MDField):
+            # start the journey to the path from the first level
+            out_dict[k] = in_dict.get(v.path[0], None)
+            # keep going down the levels until reached the value
+            for level in v.path[1:]:
+                # return if the value is missing
+                if not out_dict[k]:
+                    break
+                # reassign with the value at the next level
+                out_dict[k] = out_dict[k][level]
+            # if the value is required but absent
+            if v.is_required & (out_dict[k] is None):
+                raise Exception(f"A value for the field '{k}' is required. "
+                                f"Field {v.path} is missing or null")
+            # if the post processing function is also there
+            if v.post_process:
+                # apply it to the retrieved value
+                out_dict[k] = v.post_process(out_dict[k])
+        elif isinstance(v, dict):
+            # call function recursively to map the internal dict
+            out_dict[k] = map_dictionary(in_dict, v)
+        elif isinstance(v, list):
+            # initiate the list
+            out_dict[k] = []
+            # loop through the values in the corresponding input dictionary list
+            for list_dict in in_dict[v[LIST_NAME]]:
+                # get the upper fields except for the list field itself
+                upper_level_fields = {key: val for key, val in in_dict.items() if key != v[LIST_NAME]}
+                # add the upper level fields in case required
+                list_dict = {**list_dict, **upper_level_fields}
+                # call function for each dictionary and append the results
+                out_dict[k].append(map_dictionary(list_dict, v[LIST_DICT]))
+        # just assign if the value is a predefined constant
+        else:
+            out_dict[k] = v
+    return out_dict

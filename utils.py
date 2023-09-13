@@ -7,6 +7,7 @@ except ImportError:
     findspark.init(spark_home='/opt/spark-2.3.0/')
     import pyspark
 import pyspark.sql.functions as F  # noqa: F401
+import pyspark.sql.types as T  # noqa: F401
 from pyspark.sql.window import Window  # noqa: F401
 from pyspark.sql.dataframe import DataFrame  # noqa: F401
 from collections import namedtuple
@@ -280,26 +281,34 @@ DataFrame.pvc = _pvc
 
 def _time_range(
         self,
-        col: str = None,
+        col: str,
+        to_date: bool = True,
         ) -> DataFrame:
     """
     Return a DataFrame with minimum and maximum time in readable format.
     Parameters
     ----------
     self : pyspark.sql.DataFrame
-    col : column name, optional
-        Column with timesstamps. If None, the first column that ends with "Ts" is used
+    col : column name, string
+        Column with timestamps.
+    to_date : a flag that says to convert the datetime to date for easier reading, boolean
     Returns
     -------
     pyspark.sql.dataframe.DataFrame
     """
 
-    if not col:
-        col = next(c for c in self.columns if c.endswith('Ts'))
+    col_type = self.schema[col].dataType
+
+    if col_type == T.IntegerType():
+        self = self.withColumn(col, F.from_unixtime(col))
+    elif col_type == T.IntegerType():
+        self = self.withColumn(col, F.to_timestamp(col))
+
+    if to_date:
+        self = self.withColumn(col, F.to_date(col))
 
     return (
         self
-        .withColumn(col, F.from_unixtime(F.col(col) / 1000))
         .agg(F.min(col), F.max(col))
     )
 
@@ -309,21 +318,23 @@ DataFrame.time_range = _time_range
 
 def _ptr(
         self,
-        col: str = None,
+        col: str,
+        to_date: bool = True,
         ) -> DataFrame:
     """
     Prints minimum and maximum time in a readable format.
     Parameters
     ----------
     self : pyspark.sql.DataFrame
-    col : column name, optional
-        Column with timesstamps. If None, the first column that ends with "Ts" is used
+    col : column name, string
+        Column with timestamps.
+    to_date : a flag that says to convert the datetime to date for easier reading, boolean
     Returns
     -------
     pyspark.sql.dataframe.DataFrame
     """
 
-    df = self.time_range(col)
+    df = self.time_range(col, to_date)
     col = df.columns[0][4:-1]
 
     res = df.collect()[0]

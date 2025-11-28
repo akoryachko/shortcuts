@@ -6,8 +6,6 @@ from typing import Optional, Tuple, Union
 from IPython.display import Image  # type: ignore
 from IPython.display import display as display_img  # type: ignore
 
-rabo_colors = ["#000099", "#FD6400", "#80BA27", "#C8009C", "#D6083B", "#FFC200", "#90D1E3", "#A19469"]
-
 
 class PlotSaver:
     """Class for saving and retrieving the plots

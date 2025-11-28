@@ -34,6 +34,7 @@ from typing import Any, Hashable, List, Optional, Sequence, Union
 import pandas as pd
 import pyspark.sql.functions as F
 import pyspark.sql.types as T
+from dbruntime.dbutils import DBUtils  # type: ignore
 from IPython import get_ipython  # type: ignore
 from pyspark.sql.dataframe import DataFrame
 from pyspark.sql.session import SparkSession
@@ -45,6 +46,8 @@ pd.set_option("display.max_columns", 500)
 pd.set_option("display.max_colwidth", None)
 pd.set_option("display.max_rows", 500)
 
+logger = logging.getLogger("py4j")
+logger.setLevel(logging.WARN)
 
 def imports() -> None:
     imports_file_location = _get_data_file_path("imports.txt")
@@ -72,6 +75,13 @@ def _get_global_spark(spark_provided: Optional[SparkSession] = None) -> SparkSes
     if not isinstance(spark, SparkSession):
         raise Exception("spark variable is not found/specified/wrong!")
     return spark
+
+
+def _get_dbutils() -> DBUtils:
+    dbutils = _get_global_variable("dbutils")
+    if dbutils is None:
+        raise Exception("dbutils variable is not found/specified/wrong!")
+    return dbutils
 
 
 @dataclass
@@ -186,7 +196,7 @@ class DataFrameSaver:
     """
 
     def __init__(
-        self, spark: Optional[SparkSession] = None, path: str = "dbfs:/mnt/teamdata/temp", prefix: str = ""
+        self, spark: Optional[SparkSession] = None, path: str = "dbfs:/temp", prefix: str = ""
     ) -> None:
         self.spark = _get_global_spark(spark)
         self.data_path = path
@@ -199,13 +209,26 @@ class DataFrameSaver:
         full_name = self._full_name(name)
         return f"{self.data_path}/{full_name}"
 
-    def load(self, name: str) -> DataFrame:
-        return self.spark.read.format("delta").load(self._full_path(name))
+    def load(self, name: str, format: str = "delta") -> DataFrame:
+        return self.spark.read.format(format).load(self._full_path(name))
 
-    def save(self, sdf: DataFrame, name: str, mode: str = "overwrite") -> None:
-        sdf.write.mode(mode).option("overwriteSchema", "True").saveAsTable(
-            self._full_name(name), path=self._full_path(name)
+    def save(
+        self,
+        sdf: DataFrame,
+        name: str,
+        mode: str = "overwrite",
+        format: str = "delta",
+        partition_cols: List[str] | str = [],
+    ) -> None:
+        sdf.write.mode(mode).format(format).option("overwriteSchema", "True").partitionBy(partition_cols).save(
+            self._full_path(name)
         )
+
+    def drop(self, name: str) -> bool:
+        """Remove the dataframe by the name if exists. Returns False if the dataset was not found"""
+        dbutils = _get_dbutils()
+        was_removed = dbutils.fs.rm(self._full_path(name), True)
+        return was_removed
 
     def show(self) -> None:
         """Prints a list of the available datasets"""
